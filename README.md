@@ -8,9 +8,9 @@ Use this tool to find the offsets: https://github.com/halal-beef/sboot-split-det
 Then use linux's dd to extract files from these offsets.
 
 Example:
+if the tool says:
 
 ```bash
-if the tool says:
 BL1:    0x0      - 0x3000
 EPBL:   0x3000   - 0x16000
 BL2:    0x16000  - 0xEC000
