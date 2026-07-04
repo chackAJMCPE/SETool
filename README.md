@@ -29,6 +29,20 @@ dd if=sboot.bin of=../sources/abl.img  bs=1 skip=$((0xEC000)) count=$((0x280000)
 dd if=sboot.bin of=../sources/bl31.img bs=1 skip=$((0x36C000)) count=$((0x40000))
 ```
 
+Then you need to boot into EUB/EDL
+
+To do that, there are 2 ways:
+
+Corrupt the bootloader
+
+Or
+
+Short 2 test points (that's how i did it)
+
+
+While shorting the test points you plug in the phone to your computer WITH the battery plugged in.
+
+Dont know where to short? These guys have a lot of them: https://chimeratool.com/en/test-points
 
 # Why only s21 and later??
 The EUB before s21 is documented and the tools do exist already.
