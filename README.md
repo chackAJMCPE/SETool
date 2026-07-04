@@ -18,6 +18,7 @@ EL3_MON:0x36C000 - 0x3AC000
 
 you do:
 
+```bash
 dd if=sboot.bin of=../sources/bl1.img  bs=1 count=$((0x3000))
 dd if=sboot.bin of=../sources/pbl.img  bs=1 skip=$((0x3000))  count=$((0x13000))
 dd if=sboot.bin of=../sources/bl2.img  bs=1 skip=$((0x16000)) count=$((0xD6000))
