@@ -42,7 +42,7 @@ Short 2 test points (that's how i did it)
 
 While shorting the test points you plug in the phone to your computer WITH the battery plugged in.
 
-Dont know where to short? These guys have a lot of them: https://chimeratool.com/en/test-points
+Dont know where to short? These guys have a lot of images for you: https://chimeratool.com/en/test-points
 
 # Why only s21 and later??
 The EUB before s21 is documented and the tools do exist already.
