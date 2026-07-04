@@ -1,4 +1,4 @@
-# SETool
+# SETool (short for Samsung EDL Tool)
 A work in progress EDL tool for exynos chips (S21 and later)
 For older models use https://github.com/halal-beef/hubble
 
