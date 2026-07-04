@@ -30,7 +30,7 @@ dd if=sboot.bin of=../sources/bl31.img bs=1 skip=$((0x36C000)) count=$((0x40000)
 ```
 
 
-# Why only s21+??
+# Why only s21 and later??
 The EUB before s21 is documented and the tools do exist already.
 When Samsung removed their Moongoose cores, they also reworked the bootrom, especially EUB.
 A very similiar EUB to the one used in the s21 happens to be in google's first tensor SOC.
