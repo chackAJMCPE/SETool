@@ -8,6 +8,7 @@ Use this tool to find the offsets: https://github.com/halal-beef/sboot-split-det
 Then use linux's dd to extract files from these offsets.
 
 Example:
+
 if the tool says:
 
 ```bash
