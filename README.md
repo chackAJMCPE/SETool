@@ -9,6 +9,7 @@ Then use linux's dd to extract files from these offsets.
 
 Example:
 
+```bash
 if the tool says:
 BL1:    0x0      - 0x3000
 EPBL:   0x3000   - 0x16000
