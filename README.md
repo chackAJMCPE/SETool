@@ -2,6 +2,10 @@
 A work in progress EDL tool for exynos chips (S21 and later)
 For older models use https://github.com/halal-beef/hubble
 
+As of now i'm stuck at 2bl, for some reason my phone wont go further. 
+If you (the reader) can please test this code on your device 
+and let me know so i can make sure its just my phone, not the tool.
+
 To use this tool you will need some files. These files can be found in samsung's BL.tar firmwares.
 Some of the files need to be extracted from sboot.bin.
 Use this tool to find the offsets: https://github.com/halal-beef/sboot-split-detector
