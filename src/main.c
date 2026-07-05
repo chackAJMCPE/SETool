@@ -1,7 +1,6 @@
 // SETool - A Work In Progress EDL tool for exynos chips (S21 and later)
 // Code under GNU GPL v3.0 or later
 // Created by chackAJMCPE@github.com
-
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +14,8 @@
 #include <sys/stat.h>
 #include <sys/select.h>
 #include <time.h>
+#include <dirent.h>
+#include <limits.h>
 
 #ifndef CRTSCTS
 #define CRTSCTS 0
@@ -35,7 +36,6 @@ typedef struct {
 } Image;
 
 #define MAX_IMAGES 32
-static bool  debug_raw = false;
 static Image images[MAX_IMAGES];
 static int   n_images = 0;
 
@@ -247,7 +247,7 @@ static bool send_image(int fd, const Image *img, int op)
         len = (len < HEADER_SIZE) ? len : HEADER_SIZE;
     } else if (op == 2) {
         if (len <= HEADER_SIZE) {
-            fprintf(stderr, "[!] Image '%s' too small for body split\n", img->name);
+            fprintf(stderr, "[ERR] Image '%s' too small for body split\n", img->name);
             return false;
         }
         data += HEADER_SIZE;
@@ -268,18 +268,18 @@ static void handle_request(int fd, const char *request)
         if (strcmp(req_map[i].req, req) != 0) continue;
         Image *img = find_image(req_map[i].img);
         if (!img) {
-            fprintf(stderr, "[!] No image loaded for '%s' (need '%s')\n", req, req_map[i].img);
+            fprintf(stderr, "[ERR] No image loaded for '%s' (need '%s')\n", req, req_map[i].img);
             return;
         }
         int op = req_map[i].op;
-        printf("[>] Sending %s (op=%d, %zu bytes)\n", req, op, img->size);
+        printf("[INFO] Sending %s (op=%d, %zu bytes)\n", req, op, img->size);
         if (send_image(fd, img, op))
-            printf("[+] Sent %s\n", req);
+            printf("[INFO] Sent %s\n", req);
         else
-            fprintf(stderr, "[-] Failed to send %s\n", req);
+            fprintf(stderr, "[ERR] Failed to send %s\n", req);
         return;
     }
-    fprintf(stderr, "[!] Unknown image request: %s\n", req);
+    fprintf(stderr, "[ERR] Unknown image request: %s\n", req);
 }
 
 static void run(int fd)
@@ -290,20 +290,19 @@ static void run(int fd)
 
     ssize_t _ign = write(fd, "\n", 1); (void)_ign;
 
-    printf("[*] Waiting for device messages...\n");
+    printf("[INFO] Waiting for device messages...\n");
 
     while (1) {
         int n = read_line(fd, line, sizeof(line));
         if (n < 0) { perror("read_line"); break; }
         if (n == 0) continue;
 
-        printf("[<] %s\n", line);
 
         Msg m;
         parse_msg(line, &m);
 
         if (strcmp(m.cmd, "exynos_usb_booting") == 0) {
-            printf("[*] Device identified: %s\n", m.dev);
+            printf("[INFO] Device identified: %s\n", m.dev);
 
         } else if (strcmp(m.cmd, "eub") == 0) {
 
@@ -315,65 +314,40 @@ static void run(int fd)
                 if (bl[i] >= 'a' && bl[i] <= 'z') bl[i] -= 32;
 
             if (strcmp(m.sub, "req") == 0) {
-                if (strcmp(request, bl) == 0) {
-                    // Exynos 9840 re-requests same stage instead of sending ack, may be the same on other chips.
-                    printf("[~] Duplicate req for %s — treating as ACK, re-arming\n", bl);
-                    upload = true;
-                    continue;
-                }
-                printf("[*] Requested %s\n", bl);
+                printf("[INFO] Requested %s\n", bl);
                 strncpy(request, bl, sizeof(request) - 1);
                 request[sizeof(request)-1] = '\0';
                 upload = true;
 
             } else if (strcmp(m.sub, "ack") == 0) {
-                printf("[+] ACK for %s\n", bl);
+                printf("[INFO] ACK for %s\n", bl);
                 upload = true;  // re-arm: device ready for next C
 
             } else if (strcmp(m.sub, "nak") == 0) {
-                fprintf(stderr, "[-] NAK for %s\n", bl);
+                fprintf(stderr, "[WARN] NAK for %s\n", bl);
             }
 
         } else if (m.cmd[0] == 'C' && m.cmd[1] == '\0') {
             if (!upload) {
-                printf("[~] C signal but not ready to upload\n");
+                printf("[INFO] C signal but not ready to upload\n");
                 continue;
             }
             upload = false;
-            printf("[*] C signal — sending %s\n", request);
+            printf("[INFO] C signal — sending %s\n", request);
             handle_request(fd, request);
-            if (debug_raw) {
-                // Raw byte dump — see what the device sends immediately after
-                uint8_t raw[128];
-                struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
-                fd_set fds;
-                FD_ZERO(&fds);
-                FD_SET(fd, &fds);
-                if (select(fd + 1, &fds, NULL, NULL, &tv) > 0) {
-                    ssize_t nr = read(fd, raw, sizeof(raw));
-                    if (nr > 0) {
-                        printf("[RAW] %zd bytes: ", nr);
-                        for (ssize_t i = 0; i < nr; i++) printf("%02x ", raw[i]);
-                        printf("\n");
-                        // also print as string if printable
-                        printf("[RAW] ascii: ");
-                        for (ssize_t i = 0; i < nr; i++)
-                            printf("%c", (raw[i] >= 0x20 && raw[i] < 0x7f) ? raw[i] : '.');
-                        printf("\n");
-                    }
-                } else {
-                    printf("[RAW] no response within 2s\n");
-                }
-            }
 
         } else if (strcmp(m.cmd, "irom_booting_failure") == 0) {
-            fprintf(stderr, "[!] iROM booting failure: %s\n", m.dev);
+            fprintf(stderr, "[ERR] iROM booting failure: %s\n", m.dev);
 
         } else if (strcmp(m.cmd, "error") == 0) {
-            fprintf(stderr, "[!] Error (%s): %s\n", m.sub, m.arg);
+            fprintf(stderr, "[ERR] Error (%s): %s\n", m.sub, m.arg);
+
+        } else if (strstr(line, "[BL2] USB Loading Done") != NULL) {
+            printf("[INFO] USB loading complete!\n");
+            return;
 
         } else if (strstr(line, "Ready to rx") != NULL) {
-            printf("[~] %s\n", line);
+            printf("[INFO] %s\n", line);
 
         } else if (strstr(line, "rx done") != NULL || strstr(line, "Header pass") != NULL) {
             const char *p = line;
@@ -389,17 +363,17 @@ static void run(int fd)
                     }
                 }
                 if (!best) {
-                    printf("[~] %s\n", p);
+                    printf("[?] %s\n", p);
                     break;
                 }
                 size_t seg_len = (size_t)(best - p) + best_len;
-                printf("[~] %.*s\n", (int)seg_len, p);
+                printf("[INFO] %.*s\n", (int)seg_len, p);
                 p = best + best_len;
             }
 
         } else {
-            printf("[?] Unhandled: %s\n", line);
-        }
+            printf("[WARN] Unhandled: %s\n", line);
+        } 
     }
 }
 
@@ -413,17 +387,16 @@ static void usage(const char *prog)
         "  --dpm  <file>   DPM image (zeroed 4KB if omitted)\n"
         "  --pbl  <file>   PBL/EPBL image\n"
         "  --bl2  <file>   BL2 image\n"
-        "  --gsa  <file>   GSA image\n"
+        "  --tzar <file>   TZAR image\n"
         "  --abl  <file>   ABL image\n"
         "  --tzsw <file>   TZSW image\n"
         "  --ldfw <file>   LDFW image\n"
         "  --bl31 <file>   BL31 image\n"
-        "  --gcf  <file>   GCF image (optional)\n"
-        "  --gsaf <file>   GSAF image (optional)\n"
+        "  --ssp  <file>   SSP image\n"
         "  -h              Show this help\n"
-        "  --debug         Dump raw bytes received after each send\n"
+        "  /dev/ttyACMx    Manually specify the port to use.\n"
         "\nExample:\n"
-        "  sudo %s -s ./sources /dev/ttyACM0\n", prog, prog);
+        "  sudo %s -s ./sources\n", prog, prog);
 }
 
 static const char *get_arg(int argc, char **argv, const char *key, const char *shortkey)
@@ -448,50 +421,138 @@ static void register_image(const char *name, const char *src_dir, const char *fi
     size_t   sz   = 0;
     uint8_t *data = load_image(src_dir, filename, &sz);
     if (!data) {
-        fprintf(stderr, "[~] Could not load '%s' for %s (optional or missing)\n", filename, name);
+        fprintf(stderr, "[WARN] Could not load '%s' for %s (optional or missing)\n", filename, name);
         return;
     }
     images[n_images].name = name;
     images[n_images].path = strdup(filename);
     images[n_images].data = data;
     images[n_images].size = sz;
-    printf("[*] Loaded %-6s: %s (%zu bytes)\n", name, filename, sz);
+    printf("[INFO] Loaded %-6s: %s (%zu bytes)\n", name, filename, sz);
     n_images++;
+}
+
+static char *find_exynos_port(void)
+{
+    DIR *d = opendir("/sys/class/tty");
+    if (!d) return NULL;
+
+    struct dirent *de;
+
+    while ((de = readdir(d))) {
+
+        if (strncmp(de->d_name, "ttyACM", 6) != 0) continue;
+
+        char path[PATH_MAX];
+        char resolved[PATH_MAX];
+        char dir[PATH_MAX];
+        char vendor[PATH_MAX];
+        char product[PATH_MAX];
+
+        snprintf(path, sizeof(path), "/sys/class/tty/%s/device", de->d_name);
+
+        if (!realpath(path, resolved)) continue;
+
+        strncpy(dir, resolved, sizeof(dir) - 1);
+        dir[sizeof(dir) - 1] = '\0';
+
+        while (1) {
+
+            size_t dirlen = strlen(dir);
+
+            if (dirlen + 10 >= sizeof(vendor)) break;
+            if (dirlen + 11 >= sizeof(product)) break;
+
+            memcpy(vendor, dir, dirlen);
+            memcpy(vendor + dirlen, "/idVendor", 10);
+
+            memcpy(product, dir, dirlen);
+            memcpy(product + dirlen, "/idProduct", 11);
+
+            vendor[dirlen + 9] = '\0';
+            product[dirlen + 10] = '\0';
+
+            FILE *vf = fopen(vendor, "r");
+            FILE *pf = fopen(product, "r");
+
+            if (vf && pf) {
+                char vid[16] = {0};
+                char pid[16] = {0};
+
+                if (!fgets(vid, sizeof(vid), vf) ||
+                    !fgets(pid, sizeof(pid), pf)) {
+                    fclose(vf);
+                    fclose(pf);
+                    break;
+                }
+
+                fclose(vf);
+                fclose(pf);
+
+                vid[strcspn(vid, "\n")] = 0;
+                pid[strcspn(pid, "\n")] = 0;
+
+                if (!strncmp(vid, "04e8", 4) &&
+                    !strncmp(pid, "1100", 4)) {
+
+                    size_t len = strlen("/dev/") + strlen(de->d_name) + 1;
+                    char *dev = malloc(len);
+
+                    if (!dev) break;
+
+                    snprintf(dev, len, "/dev/%s", de->d_name);
+
+                    closedir(d);
+                    return dev;
+                }
+
+            } else {
+                if (vf) fclose(vf);
+                if (pf) fclose(pf);
+            }
+
+            char *slash = strrchr(dir, '/');
+            if (!slash) break;
+
+            *slash = '\0';
+        }
+    }
+
+    closedir(d);
+    return NULL;
 }
 
 int main(int argc, char **argv)
 {
     if (has_flag(argc, argv, "-h") || argc < 2) { usage(argv[0]); return 0; }
-    if (has_flag(argc, argv, "--debug")) debug_raw = true;
 
-    const char *serial_dev = argv[argc - 1];
+    char *serial_dev = NULL;
     const char *src_dir    = get_arg(argc, argv, "-s", NULL);
     if (!src_dir) src_dir  = "sources";
 
     const char *f_bl1  = get_arg(argc, argv, "--bl1",  NULL) ?: "bl1.img";
-    const char *f_dpm  = get_arg(argc, argv, "--dpm",  NULL);
+    const char *f_dpm  = get_arg(argc, argv, "--dpm",  NULL) ?: "dpm.img";
     const char *f_pbl  = get_arg(argc, argv, "--pbl",  NULL) ?: "pbl.img";
     const char *f_bl2  = get_arg(argc, argv, "--bl2",  NULL) ?: "bl2.img";
-    const char *f_gsa  = get_arg(argc, argv, "--gsa",  NULL) ?: "gsa.img";
     const char *f_abl  = get_arg(argc, argv, "--abl",  NULL) ?: "abl.img";
     const char *f_tzsw = get_arg(argc, argv, "--tzsw", NULL) ?: "tzsw.img";
     const char *f_ldfw = get_arg(argc, argv, "--ldfw", NULL) ?: "ldfw.img";
     const char *f_bl31 = get_arg(argc, argv, "--bl31", NULL) ?: "bl31.img";
-    const char *f_gcf  = get_arg(argc, argv, "--gcf",  NULL) ?: "gcf.img";
-    const char *f_gsaf = get_arg(argc, argv, "--gsaf", NULL) ?: "gsaf.img";
+    const char *f_tzar = get_arg(argc, argv, "--tzar", NULL) ?: "tzar.img";
+    const char *f_ssp = get_arg(argc, argv, "--ssp", NULL) ?: "ssp.img";
+
 
     printf("SETool - Exynos EUB/EDL Downloader\n\n");
 
     register_image("BL1",  src_dir, f_bl1);
     register_image("PBL",  src_dir, f_pbl);
     register_image("BL2",  src_dir, f_bl2);
-    register_image("GSA",  src_dir, f_gsa);
     register_image("ABL",  src_dir, f_abl);
     register_image("TZSW", src_dir, f_tzsw);
     register_image("LDFW", src_dir, f_ldfw);
     register_image("BL31", src_dir, f_bl31);
-    register_image("GCF",  src_dir, f_gcf);
-    register_image("GSAF", src_dir, f_gsaf);
+    register_image("TZAR", src_dir, f_tzar);
+    register_image("SSP", src_dir, f_ssp);
 
     if (n_images < MAX_IMAGES) {
         images[n_images].name = "DPM";
@@ -503,14 +564,24 @@ int main(int argc, char **argv)
             uint8_t *data = load_image(src_dir, f_dpm, &sz);
             if (data) { free(images[n_images].data); images[n_images].data = data; images[n_images].size = sz; }
         }
-        printf("[*] Loaded %-6s: %s (%zu bytes)\n", "DPM", images[n_images].path, images[n_images].size);
+        printf("[INFO] Loaded %-6s: %s (%zu bytes)\n", "DPM", images[n_images].path, images[n_images].size);
         n_images++;
     }
 
-    printf("\n[*] Opening %s ...\n", serial_dev);
+    if (argc >= 2 && argv[argc-1][0] == '/') {
+        serial_dev = strdup(argv[argc-1]);
+    } else {
+        printf("\n\n[INFO] Waiting for phone... (connect it now)\n\n");
+        while(true) {
+            serial_dev = find_exynos_port();
+            if (serial_dev) break;
+        }
+    }
+
+    printf("\n[INFO] Opening %s ...\n", serial_dev);
     int fd = open_serial(serial_dev);
     if (fd < 0) return 1;
-    printf("[+] Connected\n\n");
+    printf("[INFO] Connected\n\n");
 
     run(fd);
     close(fd);
